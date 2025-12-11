@@ -50,6 +50,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
   const [showRAGValidation, setShowRAGValidation] = useState(false)
+  const [analysisStatus, setAnalysisStatus] = useState<string>('')
 
   // Camera States
   const [isCameraOpen, setIsCameraOpen] = useState(false)
@@ -133,59 +134,83 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
     setError(null)
     setProgress(0)
     setShowRAGValidation(false)
+    setAnalysisStatus('')
     stopCamera()
   }, [stopCamera])
 
-  // --- SIMULATION LOGIC ---
-  const simulateAnalysis = useCallback(async () => {
+  // --- GEMINI ANALYSIS LOGIC ---
+  const analyzeWithGemini = useCallback(async () => {
     if (!selectedImage) return
     setIsAnalyzing(true)
     setError(null)
     setProgress(0)
+    setAnalysisStatus('Mengirim gambar ke AI...')
 
     try {
-      const progressSteps = [
-        { step: 'Mendeteksi objek...', progress: 20 },
-        { step: 'Menganalisis karakteristik...', progress: 40 },
-        { step: 'Mengestimasi berat...', progress: 60 },
-        { step: 'Menganalisis karat...', progress: 80 },
-        { step: 'Validasi hasil...', progress: 100 }
-      ]
+      // Progress animation
+      const progressInterval = setInterval(() => {
+        setProgress(prev => {
+          const next = prev + 3
+          return next >= 85 ? 85 : next
+        })
+      }, 200)
 
-      for (const { progress } of progressSteps) {
-        await new Promise(resolve => setTimeout(resolve, 600))
-        setProgress(progress)
+      setAnalysisStatus('Menganalisis gambar dengan Gemini AI...')
+
+      // Call Gemini API
+      const response = await fetch('/api/gemini-analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image_base64: selectedImage
+        })
+      })
+
+      clearInterval(progressInterval)
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Analysis failed')
       }
 
-      const mockResult: AnalysisResult = {
-        object_type: 'Cincin',
-        estimated_weight: 6,
-        karat: 22,
-        condition: 'Baik',
-        confidence_scores: {
-          object_detection: 94,
-          weight_estimation: 77,
-          karat_analysis: 85,
-          condition_analysis: 88
-        }
+      const data = await response.json()
+
+      if (!data.success) {
+        throw new Error(data.error || 'Analysis failed')
       }
 
-      setAnalysisResult(mockResult)
-      onAnalysisComplete?.(mockResult)
+      setProgress(95)
+      setAnalysisStatus('Memvalidasi hasil...')
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      setProgress(100)
+      setAnalysisStatus('Analisis selesai!')
+
+      setAnalysisResult(data.analysis_result)
+      onAnalysisComplete?.(data.analysis_result)
+
+      console.log('Gemini Analysis Result:', data.analysis_result)
+      if (data.raw_analysis) {
+        console.log('Raw Analysis:', data.raw_analysis)
+      }
     } catch (err) {
-      setError('Gagal menganalisis. Coba lagi.')
+      console.error('Analysis error:', err)
+      setError(err instanceof Error ? err.message : 'Gagal menganalisis. Coba lagi.')
+      setProgress(0)
+      setAnalysisStatus('')
     } finally {
       setIsAnalyzing(false)
     }
   }, [selectedImage, onAnalysisComplete])
 
   return (
-    <div className="space-y-6 w-full"> {/* Added w-full */}
+    <div className="space-y-6 w-full">
 
-      {/* 1. STATE: BELUM ADA GAMBAR (Modified Layout) */}
+      {/* 1. STATE: BELUM ADA GAMBAR */}
       {!selectedImage && (
         <Card className="border-2 border-dashed border-amber-300 bg-amber-50/30 w-full">
-          {/* Mengurangi padding vertikal (py-8) agar tidak terlalu tinggi */}
           <CardContent className="flex flex-col items-center justify-center py-8 px-4 text-center space-y-4">
 
             <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-1">
@@ -197,7 +222,6 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
               <p className="text-sm text-gray-500">Ambil foto langsung atau upload dari galeri</p>
             </div>
 
-            {/* Membuat tombol lebih lebar (max-w-md -> max-w-lg) */}
             <div className="flex flex-col sm:flex-row gap-3 w-full max-w-lg pt-2">
               <Button
                 onClick={() => document.getElementById('file-input')?.click()}
@@ -278,7 +302,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
             {!analysisResult && !isAnalyzing && (
               <div className="p-6 flex justify-center bg-amber-50/50">
                 <Button
-                  onClick={simulateAnalysis}
+                  onClick={analyzeWithGemini}
                   size="lg"
                   className="w-full sm:w-auto px-10 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg text-lg h-12"
                 >
@@ -295,13 +319,13 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
                 <div className="flex justify-between items-end text-amber-900">
                   <span className="font-semibold text-lg flex items-center gap-2">
                     <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
-                    Menganalisis...
+                    {analysisStatus || 'Menganalisis...'}
                   </span>
                   <span className="font-bold text-2xl text-amber-600">{progress}%</span>
                 </div>
                 <Progress value={progress} className="h-4 bg-gray-100 rounded-full" />
                 <p className="text-center text-sm text-gray-500 animate-pulse">
-                  AI sedang mengidentifikasi karakteristik emas Anda...
+                  Gemini AI sedang mengidentifikasi karakteristik emas Anda...
                 </p>
               </CardContent>
             </Card>
