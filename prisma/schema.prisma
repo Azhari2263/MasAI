@@ -1,0 +1,274 @@
+// This is your Prisma schema file for MasAI - Sistem Penaksir Emas Cerdas
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User management with roles
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  phone         String?
+  password_hash String?
+  role          UserRole @default(USER)
+  is_active     Boolean  @default(true)
+  last_login    DateTime?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  // Relations
+  estimations   Estimation[]
+  applications  Application[]
+  sessions      UserSession[]
+
+  @@map("users")
+}
+
+// User roles for RBAC
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+// User sessions for authentication
+model UserSession {
+  id           String   @id @default(cuid())
+  user_id      String
+  session_token String  @unique
+  expires_at   DateTime
+  created_at   DateTime @default(now())
+  is_active    Boolean  @default(true)
+
+  // Relations
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+// Gold price tracking
+model GoldPrice {
+  id           String   @id @default(cuid())
+  buy_price    Int      // in IDR
+  sell_price   Int      // in IDR
+  effective_date DateTime @unique
+  source       String   @default("Pegadaian")
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relations
+  estimations Estimation[]
+
+  @@map("gold_prices")
+}
+
+// AI Analysis results
+model Estimation {
+  id               String   @id @default(cuid())
+  user_id          String?
+  estimation_id    String   @unique
+  image_url        String?
+  image_base64     String?  // For temporary storage
+  
+  // AI Analysis Results
+  object_type      String   // e.g., "Kalung", "Cincin", "Gelang"
+  estimated_weight Float    // in grams
+  karat            Int      // e.g., 18, 22, 24
+  condition        String   // "Baik", "Sangat Baik", "Cukup"
+  
+  // Confidence scores
+  confidence_object_detection    Float
+  confidence_weight_estimation   Float
+  confidence_karat_analysis      Float
+  confidence_condition_analysis  Float
+  
+  // Price calculation
+  gold_price_per_gram   Int
+  estimated_gold_value  Int
+  max_ltv_percentage    Int
+  max_loan_amount       Int
+  admin_fee             Int
+  net_loan_amount       Int
+  
+  // RAG Validation results
+  rag_validation_id    String?
+  rag_is_valid         Boolean?
+  rag_confidence_score Float?
+  rag_validation_steps String? // JSON string
+  rag_recommendations  String? // JSON array string
+  
+  // Status and timestamps
+  status           EstimationStatus @default(DRAFT)
+  expires_at       DateTime
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  // Relations
+  user                User?         @relation(fields: [user_id], references: [id])
+  gold_price_id       String?
+  gold_price          GoldPrice?    @relation(fields: [gold_price_id], references: [id])
+  application         Application?
+  validation_logs     ValidationLog[]
+
+  @@map("estimations")
+}
+
+// Estimation status
+enum EstimationStatus {
+  DRAFT
+  PENDING
+  PROCESSING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// Loan applications
+model Application {
+  id             String            @id @default(cuid())
+  estimation_id  String            @unique
+  user_id        String?
+  
+  // Application details
+  application_number String         @unique
+  full_name          String
+  email              String
+  phone              String
+  id_card_number     String?
+  id_card_image      String?
+  
+  // Loan details
+  requested_amount    Int
+  approved_amount     Int?
+  interest_rate       Float?
+  loan_duration       Int? // in months
+  
+  // Status tracking
+  status              ApplicationStatus @default(DRAFT)
+  current_step        String
+  progress_percentage Int @default(0)
+  
+  // Approval details
+  approved_by         String?
+  approved_at         DateTime?
+  rejection_reason    String?
+  
+  // Branch information
+  branch_id           String?
+  branch_name         String?
+  branch_address      String?
+  
+  // Timestamps
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  expires_at          DateTime?
+
+  // Relations
+  user         User?       @relation(fields: [user_id], references: [id])
+  estimation   Estimation  @relation(fields: [estimation_id], references: [id], onDelete: Cascade)
+  status_logs  ApplicationStatusLog[]
+
+  @@map("applications")
+}
+
+// Application status
+enum ApplicationStatus {
+  DRAFT
+  PENDING
+  PROCESSING
+  DOCUMENT_VERIFICATION
+  PHYSICAL_ASSESSMENT
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+// Application status timeline
+model ApplicationStatusLog {
+  id            String   @id @default(cuid())
+  application_id String
+  step          String
+  status        String   // "completed", "in_progress", "pending"
+  description   String
+  timestamp     DateTime @default(now())
+  created_by    String?  // User or system that created this log
+
+  // Relations
+  application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+
+  @@map("application_status_logs")
+}
+
+// RAG Validation logs
+model ValidationLog {
+  id             String   @id @default(cuid())
+  estimation_id  String
+  validation_type String  // "retrieval", "generation", "reflection", "validation"
+  step_name      String
+  success        Boolean
+  confidence_score Float
+  input_data     String?  // JSON string
+  output_data    String?  // JSON string
+  error_message  String?
+  processing_time_ms Int?
+  created_at     DateTime @default(now())
+
+  // Relations
+  estimation Estimation @relation(fields: [estimation_id], references: [id], onDelete: Cascade)
+
+  @@map("validation_logs")
+}
+
+// Knowledge base for RAG
+model KnowledgeBase {
+  id           String   @id @default(cuid())
+  category     String   // "regulation", "policy", "procedure", "faq"
+  title        String
+  content      String   // Markdown or plain text
+  keywords     String?  // Comma-separated keywords for search
+  priority     Int      @default(0) // Higher number = higher priority
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@unique([category, title])
+  @@map("knowledge_base")
+}
+
+// System configuration
+model SystemConfig {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  value        String   // JSON string for complex values
+  description  String?
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@map("system_config")
+}
+
+// Audit logs
+model AuditLog {
+  id           String   @id @default(cuid())
+  user_id      String?
+  action       String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT"
+  resource     String   // "estimation", "application", "user", "gold_price"
+  resource_id  String?
+  old_values   String?  // JSON string
+  new_values   String?  // JSON string
+  ip_address   String?
+  user_agent   String?
+  created_at   DateTime @default(now())
+
+  @@map("audit_logs")
+}
