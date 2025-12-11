@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+
+// Enable mock mode if no API key or for testing
+const MOCK_MODE = !process.env.GEMINI_API_KEY || process.env.GEMINI_MOCK_MODE === 'true'
 
 interface AnalysisRequest {
     image_base64: string
@@ -23,7 +26,90 @@ interface AnalysisResponse {
         }
     }
     raw_analysis?: string
+    mock_mode?: boolean
     error?: string
+}
+
+// Mock analysis function
+function getMockAnalysis(): any {
+    const types = ['Cincin', 'Kalung', 'Gelang', 'Anting', 'Liontin']
+    const conditions = ['Sangat Baik', 'Baik', 'Cukup']
+    const karats = [14, 16, 18, 22, 24]
+
+    const type = types[Math.floor(Math.random() * types.length)]
+
+    // Weight ranges based on type
+    const weightRanges: Record<string, [number, number]> = {
+        'Cincin': [2, 15],
+        'Kalung': [5, 50],
+        'Gelang': [10, 80],
+        'Anting': [1, 10],
+        'Liontin': [2, 20]
+    }
+
+    const [minWeight, maxWeight] = weightRanges[type] || [5, 30]
+    const weight = Math.round((Math.random() * (maxWeight - minWeight) + minWeight) * 10) / 10
+
+    return {
+        object_type: type,
+        estimated_weight: weight,
+        karat: karats[Math.floor(Math.random() * karats.length)],
+        condition: conditions[Math.floor(Math.random() * conditions.length)],
+        confidence_scores: {
+            object_detection: Math.floor(Math.random() * 15) + 85,
+            weight_estimation: Math.floor(Math.random() * 20) + 70,
+            karat_analysis: Math.floor(Math.random() * 20) + 75,
+            condition_analysis: Math.floor(Math.random() * 15) + 80
+        },
+        reasoning: `Mock analysis: Detected ${type} with estimated weight ${weight}g. This is simulated data for testing purposes.`
+    }
+}
+
+// Helper function to try multiple models
+async function tryModelAnalysis(imageData: string, prompt: string) {
+    const models = ['gemini-1.5-flash', 'gemini-1.5-pro']
+    let lastError = null
+
+    for (const modelName of models) {
+        try {
+            console.log(`Trying model: ${modelName}`)
+            const model = genAI.getGenerativeModel({
+                model: modelName,
+                generationConfig: {
+                    temperature: 0.4,
+                    topK: 32,
+                    topP: 1,
+                    maxOutputTokens: 2048,
+                }
+            })
+
+            const result = await model.generateContent([
+                prompt,
+                {
+                    inlineData: {
+                        data: imageData,
+                        mimeType: 'image/jpeg'
+                    }
+                }
+            ])
+
+            return await result.response
+        } catch (error: any) {
+            console.log(`Model ${modelName} failed:`, error.message)
+            lastError = error
+
+            // If quota exceeded, try next model
+            if (error.message.includes('quota') || error.message.includes('429')) {
+                continue
+            } else {
+                // If not quota issue, throw immediately
+                throw error
+            }
+        }
+    }
+
+    // All models failed
+    throw lastError || new Error('All models failed')
 }
 
 export async function POST(request: NextRequest) {
@@ -37,69 +123,118 @@ export async function POST(request: NextRequest) {
             }, { status: 400 })
         }
 
-        // Get Gemini model
-        const model = genAI.getGenerativeModel({
-            model: "models/gemini-2.0-flash"
-        });
+        // If mock mode, return mock data
+        if (MOCK_MODE) {
+            console.log('🎭 Running in MOCK MODE - using simulated analysis')
 
-        // Prepare the prompt for gold estimation
-        const prompt = `Analyze this gold jewelry image and provide detailed estimation:
+            // Simulate API delay
+            await new Promise(resolve => setTimeout(resolve, 2000))
 
-INSTRUCTIONS:
-- Identify the type of gold jewelry (Kalung/Necklace, Cincin/Ring, Gelang/Bracelet, Anting/Earring, Liontin/Pendant)
-- Estimate the weight in grams based on visible size and type
-- Estimate the karat (purity: 14K, 16K, 18K, 22K, 24K) based on color and appearance
-- Assess the physical condition (Sangat Baik/Excellent, Baik/Good, Cukup/Fair)
-- Provide confidence scores (0-100) for each estimation
+            const mockData = getMockAnalysis()
 
-RESPOND ONLY IN THIS JSON FORMAT (no markdown, no extra text):
+            return NextResponse.json({
+                success: true,
+                analysis_result: mockData,
+                raw_analysis: mockData.reasoning,
+                mock_mode: true
+            })
+        }
+
+        // Real Gemini API analysis with improved prompt
+        const prompt = `You are an expert gold jewelry appraiser. Carefully analyze this image and identify the gold jewelry.
+
+CRITICAL: Focus on these visual characteristics to identify jewelry type correctly:
+
+1. KALUNG (Necklace):
+   - Long chain worn around the neck
+   - Has clasp or closure mechanism
+   - Length typically 40-60cm
+   - May have pendant attached
+   - Chain links visible
+
+2. CINCIN (Ring):
+   - Circular band
+   - Small, fits on finger
+   - Diameter 16-22mm
+   - May have stone setting
+   - Complete circle or adjustable band
+
+3. GELANG (Bracelet):
+   - Circular/oval band for wrist
+   - Diameter 60-80mm (larger than ring)
+   - May have clasp
+   - Chain or solid band style
+
+4. ANTING (Earring):
+   - Pair of small ornaments
+   - Has hook or post for ear
+   - Usually sold/shown in pairs
+   - Very small size
+
+5. LIONTIN (Pendant):
+   - Decorative piece that hangs
+   - Has bail/loop at top
+   - Meant to be attached to chain
+   - Various shapes (heart, cross, etc)
+
+ANALYSIS STEPS:
+1. First, look at the OVERALL SHAPE and SIZE
+2. Identify distinguishing features (clasp, chain links, closure type)
+3. Estimate dimensions based on visible scale
+4. Determine karat from gold color (24K=bright yellow, 22K=rich yellow, 18K=slightly pale, 14-16K=lighter tone)
+5. Assess condition (scratches, tarnish, polish level)
+6. Provide confidence scores based on image clarity
+
+IMPORTANT:
+- If you see a CHAIN with visible links = most likely KALUNG
+- If circular and SMALL (finger size) = CINCIN
+- If circular and MEDIUM (wrist size) = GELANG
+- If PAIR of small items = ANTING
+- If decorative piece with hanging loop = LIONTIN
+- Be conservative with confidence if image is unclear
+- Weight estimation based on visible size and jewelry type standards
+
+RESPOND IN THIS EXACT JSON FORMAT (no markdown):
 {
-  "object_type": "string (Kalung/Cincin/Gelang/Anting/Liontin)",
-  "estimated_weight": number (in grams, decimal allowed),
-  "karat": number (14, 16, 18, 22, or 24),
-  "condition": "string (Sangat Baik/Baik/Cukup)",
+  "object_type": "ONLY ONE OF: Kalung|Cincin|Gelang|Anting|Liontin",
+  "estimated_weight": number,
+  "karat": 14|16|18|22|24,
+  "condition": "Sangat Baik|Baik|Cukup",
   "confidence_scores": {
     "object_detection": number (0-100),
     "weight_estimation": number (0-100),
     "karat_analysis": number (0-100),
     "condition_analysis": number (0-100)
   },
-  "reasoning": "string (brief explanation of your analysis)"
+  "visual_features": "describe what you see that led to this identification",
+  "reasoning": "explain your analysis step by step"
 }
 
-IMPORTANT GUIDELINES:
-- Weight estimation should be realistic for the jewelry type:
-  * Cincin/Ring: 2-15 grams
-  * Kalung/Necklace: 5-50 grams
-  * Gelang/Bracelet: 10-80 grams
-  * Anting/Earring: 1-10 grams (per pair)
-  * Liontin/Pendant: 2-20 grams
-- Karat estimation based on gold color:
-  * 24K: Bright yellow, pure gold
-  * 22K: Rich yellow
-  * 18K: Yellow with slight copper tone
-  * 14K-16K: Lighter yellow/pinkish tone
-- Condition assessment:
-  * Sangat Baik: No visible scratches, shiny, well-maintained
-  * Baik: Minor wear, some scratches, still good overall
-  * Cukup: Visible wear, scratches, may need polishing
-- Be conservative with confidence scores if image quality is poor`
+WEIGHT RANGES (use these as guidelines):
+- Cincin: 2-15g (most common: 3-8g)
+- Kalung: 5-50g (chain weight + pendant if any)
+- Gelang: 10-80g (depends on thickness)
+- Anting: 1-10g per pair (usually 2-5g)
+- Liontin: 2-20g (without chain)
+
+CONFIDENCE GUIDELINES:
+- 90-100: Very clear image, obvious jewelry type
+- 80-89: Good image quality, confident identification
+- 70-79: Decent image, reasonable confidence
+- Below 70: Poor image quality or unclear jewelry type
+
+If the image shows a CHAIN with multiple links = Almost certainly KALUNG (not Gelang)
+If unsure between types, choose the most likely based on SIZE and VISIBLE FEATURES.`
 
         // Convert base64 to buffer for Gemini
         const base64Data = body.image_base64.replace(/^data:image\/\w+;base64,/, '')
 
-        // Generate content with image
-        const result = await model.generateContent([
-            prompt,
-            {
-                inlineData: {
-                    data: base64Data,
-                    mimeType: 'image/jpeg'
-                }
-            }
-        ])
+        // Log image info for debugging
+        console.log('Image size (base64):', base64Data.length, 'characters')
+        console.log('Estimated image size:', Math.round(base64Data.length * 0.75 / 1024), 'KB')
 
-        const response = await result.response
+        // Try analysis with fallback models
+        const response = await tryModelAnalysis(base64Data, prompt)
         const text = response.text()
 
         console.log('Gemini Raw Response:', text)
@@ -144,17 +279,32 @@ IMPORTANT GUIDELINES:
         const apiResponse: AnalysisResponse = {
             success: true,
             analysis_result: normalizedResult,
-            raw_analysis: analysisData.reasoning || text
+            raw_analysis: `Visual Features: ${analysisData.visual_features || 'N/A'}\n\nReasoning: ${analysisData.reasoning || text}`,
+            mock_mode: false
         }
+
+        // Log detailed analysis for debugging
+        console.log('=== ANALYSIS RESULT ===')
+        console.log('Type:', normalizedResult.object_type)
+        console.log('Weight:', normalizedResult.estimated_weight, 'grams')
+        console.log('Karat:', normalizedResult.karat, 'K')
+        console.log('Visual Features:', analysisData.visual_features)
+        console.log('Confidence:', normalizedResult.confidence_scores.object_detection, '%')
 
         return NextResponse.json(apiResponse)
 
     } catch (error) {
         console.error('Gemini Analysis Error:', error)
 
+        // If quota error, suggest using mock mode
+        const isQuotaError = error instanceof Error &&
+            (error.message.includes('quota') || error.message.includes('429'))
+
         return NextResponse.json({
             success: false,
-            error: error instanceof Error ? error.message : 'Analysis failed',
+            error: isQuotaError
+                ? 'Gemini API quota exceeded. Please enable mock mode by setting GEMINI_MOCK_MODE=true in .env.local'
+                : (error instanceof Error ? error.message : 'Analysis failed'),
             analysis_result: {
                 object_type: 'Error',
                 estimated_weight: 0,

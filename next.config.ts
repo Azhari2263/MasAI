@@ -12,6 +12,12 @@ const nextConfig: NextConfig = {
     // 构建时忽略ESLint错误
     ignoreDuringBuilds: true,
   },
+  // ⬇️ TAMBAHKAN INI
+  // devIndicators: false,  // Atau gunakan object untuk lebih spesifik
+  devIndicators: {
+    buildActivity: false,
+    buildActivityPosition: "bottom-right",
+  },
 };
 
 export default nextConfig;

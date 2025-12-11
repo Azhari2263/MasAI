@@ -57,6 +57,50 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
+  // --- IMAGE ENHANCEMENT ---
+  const enhanceImage = useCallback(async (base64Image: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+
+        if (!ctx) {
+          resolve(base64Image)
+          return
+        }
+
+        // Resize image for better processing (max 1024px)
+        let width = img.width
+        let height = img.height
+        const maxSize = 1024
+
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = (height / width) * maxSize
+            width = maxSize
+          } else {
+            width = (width / height) * maxSize
+            height = maxSize
+          }
+        }
+
+        canvas.width = width
+        canvas.height = height
+
+        // Draw with slight enhancement
+        ctx.drawImage(img, 0, 0, width, height)
+
+        // Increase contrast slightly
+        ctx.filter = 'contrast(1.1) brightness(1.05)'
+        ctx.drawImage(canvas, 0, 0)
+
+        resolve(canvas.toDataURL('image/jpeg', 0.9))
+      }
+      img.src = base64Image
+    })
+  }, [])
+
   // --- CAMERA LOGIC ---
   const startCamera = async () => {
     try {
@@ -86,7 +130,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
     setIsCameraOpen(false)
   }, [])
 
-  const captureImage = useCallback(() => {
+  const captureImage = useCallback(async () => {
     if (videoRef.current) {
       const video = videoRef.current
       const canvas = document.createElement('canvas')
@@ -96,20 +140,21 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dataUrl = canvas.toDataURL('image/jpeg')
-        setSelectedImage(dataUrl)
+        // Enhance captured image
+        const enhancedImage = await enhanceImage(dataUrl)
+        setSelectedImage(enhancedImage)
         setAnalysisResult(null)
         setError(null)
         setProgress(0)
         stopCamera()
       }
     }
-  }, [stopCamera])
+  }, [stopCamera, enhanceImage])
 
   useEffect(() => {
     return () => stopCamera()
   }, [stopCamera])
 
-  // --- UPLOAD HANDLERS ---
   const handleImageSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
@@ -220,6 +265,16 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
             <div className="space-y-1">
               <h3 className="text-xl font-bold text-amber-900">Upload Foto Emas</h3>
               <p className="text-sm text-gray-500">Ambil foto langsung atau upload dari galeri</p>
+              {/* <div className="pt-2 space-y-1 text-xs text-gray-400">
+                <p>📸 Tips untuk hasil terbaik:</p>
+                <ul className="list-disc list-inside pl-2 space-y-0.5">
+                  <li>Gunakan pencahayaan yang cukup</li>
+                  <li>Tampilkan seluruh perhiasan dalam frame</li>
+                  <li>Hindari bayangan berlebihan</li>
+                  <li>Foto dari sudut yang jelas (tidak miring)</li>
+                  <li>Gunakan background polos/kontras</li>
+                </ul>
+              </div> */}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 w-full max-w-lg pt-2">
