@@ -13,11 +13,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   // ⬇️ TAMBAHKAN INI
-  // devIndicators: false,  // Atau gunakan object untuk lebih spesifik
-  devIndicators: {
-    buildActivity: false,
-    buildActivityPosition: "bottom-right",
-  },
+  devIndicators: false,  // Atau gunakan object untuk lebih spesifik
 };
 
 export default nextConfig;
