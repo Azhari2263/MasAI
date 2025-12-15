@@ -1,30 +1,19 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useEstimation } from '@/contexts/EstimationContext'
+import { useAuth } from '@/contexts/AuthContext'
 import RAGValidation from "@/components/RAGValidation"
 import {
-  Upload,
-  Camera,
-  X,
-  ZoomIn,
-  Loader2,
-  CheckCircle,
-  AlertCircle,
-  Sparkles,
-  Eye,
-  Scale,
-  Diamond,
-  Shield,
-  Image as ImageIcon,
-  RefreshCw
+  Upload, Camera, X, Loader2, CheckCircle, AlertCircle,
+  Sparkles, Eye, Scale, Diamond, ImageIcon, RefreshCw
 } from 'lucide-react'
 
-// --- Interface Definitions ---
 interface AnalysisResult {
   object_type: string
   estimated_weight: number
@@ -38,70 +27,21 @@ interface AnalysisResult {
   }
 }
 
-interface ImageUploadProps {
-  onAnalysisComplete?: (result: AnalysisResult) => void
-}
+export default function ImageUpload() {
+  const { user } = useAuth()
+  const { addEstimation } = useEstimation()
 
-export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
-  // --- States ---
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
   const [showRAGValidation, setShowRAGValidation] = useState(false)
-  const [analysisStatus, setAnalysisStatus] = useState<string>('')
-
-  // Camera States
   const [isCameraOpen, setIsCameraOpen] = useState(false)
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
-  // --- IMAGE ENHANCEMENT ---
-  const enhanceImage = useCallback(async (base64Image: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
-
-        if (!ctx) {
-          resolve(base64Image)
-          return
-        }
-
-        // Resize image for better processing (max 1024px)
-        let width = img.width
-        let height = img.height
-        const maxSize = 1024
-
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = (height / width) * maxSize
-            width = maxSize
-          } else {
-            width = (width / height) * maxSize
-            height = maxSize
-          }
-        }
-
-        canvas.width = width
-        canvas.height = height
-
-        // Draw with slight enhancement
-        ctx.drawImage(img, 0, 0, width, height)
-
-        // Increase contrast slightly
-        ctx.filter = 'contrast(1.1) brightness(1.05)'
-        ctx.drawImage(canvas, 0, 0)
-
-        resolve(canvas.toDataURL('image/jpeg', 0.9))
-      }
-      img.src = base64Image
-    })
-  }, [])
-
-  // --- CAMERA LOGIC ---
   const startCamera = async () => {
     try {
       setError(null)
@@ -130,7 +70,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
     setIsCameraOpen(false)
   }, [])
 
-  const captureImage = useCallback(async () => {
+  const captureImage = useCallback(() => {
     if (videoRef.current) {
       const video = videoRef.current
       const canvas = document.createElement('canvas')
@@ -140,16 +80,14 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dataUrl = canvas.toDataURL('image/jpeg')
-        // Enhance captured image
-        const enhancedImage = await enhanceImage(dataUrl)
-        setSelectedImage(enhancedImage)
+        setSelectedImage(dataUrl)
         setAnalysisResult(null)
         setError(null)
         setProgress(0)
         stopCamera()
       }
     }
-  }, [stopCamera, enhanceImage])
+  }, [stopCamera])
 
   useEffect(() => {
     return () => stopCamera()
@@ -179,104 +117,95 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
     setError(null)
     setProgress(0)
     setShowRAGValidation(false)
-    setAnalysisStatus('')
     stopCamera()
   }, [stopCamera])
 
-  // --- GEMINI ANALYSIS LOGIC ---
-  const analyzeWithGemini = useCallback(async () => {
+  const simulateAnalysis = useCallback(async () => {
     if (!selectedImage) return
     setIsAnalyzing(true)
     setError(null)
     setProgress(0)
-    setAnalysisStatus('Mengirim gambar ke AI...')
 
     try {
-      // Progress animation
-      const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          const next = prev + 3
-          return next >= 85 ? 85 : next
-        })
-      }, 200)
+      const progressSteps = [
+        { step: 'Mendeteksi objek...', progress: 20 },
+        { step: 'Menganalisis karakteristik...', progress: 40 },
+        { step: 'Mengestimasi berat...', progress: 60 },
+        { step: 'Menganalisis karat...', progress: 80 },
+        { step: 'Validasi hasil...', progress: 100 }
+      ]
 
-      setAnalysisStatus('Menganalisis gambar dengan Gemini AI...')
-
-      // Call Gemini API
-      const response = await fetch('/api/gemini-analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image_base64: selectedImage
-        })
-      })
-
-      clearInterval(progressInterval)
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Analysis failed')
+      for (const { progress } of progressSteps) {
+        await new Promise(resolve => setTimeout(resolve, 600))
+        setProgress(progress)
       }
 
-      const data = await response.json()
-
-      if (!data.success) {
-        throw new Error(data.error || 'Analysis failed')
+      const mockResult: AnalysisResult = {
+        object_type: 'Cincin',
+        estimated_weight: 6,
+        karat: 22,
+        condition: 'Baik',
+        confidence_scores: {
+          object_detection: 94,
+          weight_estimation: 77,
+          karat_analysis: 85,
+          condition_analysis: 88
+        }
       }
 
-      setProgress(95)
-      setAnalysisStatus('Memvalidasi hasil...')
-      await new Promise(resolve => setTimeout(resolve, 500))
+      setAnalysisResult(mockResult)
 
-      setProgress(100)
-      setAnalysisStatus('Analisis selesai!')
+      // Generate estimation ID
+      const timestamp = Date.now()
+      const estimationId = `EST-${timestamp}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
 
-      setAnalysisResult(data.analysis_result)
-      onAnalysisComplete?.(data.analysis_result)
+      // Calculate values
+      const goldPrice = 1250000
+      const estimatedValue = mockResult.estimated_weight * goldPrice
+      const maxLtv = 80
+      const maxLoan = Math.floor(estimatedValue * (maxLtv / 100))
+      const adminFee = 16500
+      const netLoan = maxLoan - adminFee
 
-      console.log('Gemini Analysis Result:', data.analysis_result)
-      if (data.raw_analysis) {
-        console.log('Raw Analysis:', data.raw_analysis)
+      // Save estimation to context
+      if (user) {
+        addEstimation({
+          id: estimationId,
+          estimation_id: estimationId,
+          object_type: mockResult.object_type,
+          estimated_weight: mockResult.estimated_weight,
+          karat: mockResult.karat,
+          condition: mockResult.condition,
+          confidence_scores: mockResult.confidence_scores,
+          gold_price_per_gram: goldPrice,
+          estimated_gold_value: estimatedValue,
+          max_loan_amount: maxLoan,
+          net_loan_amount: netLoan,
+          status: 'DRAFT',
+          created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          image_url: selectedImage
+        })
       }
     } catch (err) {
-      console.error('Analysis error:', err)
-      setError(err instanceof Error ? err.message : 'Gagal menganalisis. Coba lagi.')
-      setProgress(0)
-      setAnalysisStatus('')
+      setError('Gagal menganalisis. Coba lagi.')
     } finally {
       setIsAnalyzing(false)
     }
-  }, [selectedImage, onAnalysisComplete])
+  }, [selectedImage, addEstimation, user])
 
   return (
     <div className="space-y-6 w-full">
-
-      {/* 1. STATE: BELUM ADA GAMBAR */}
       {!selectedImage && (
         <Card className="border-2 border-dashed border-amber-300 bg-amber-50/30 w-full">
           <CardContent className="flex flex-col items-center justify-center py-8 px-4 text-center space-y-4">
-
             <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-1">
               <Upload className="w-8 h-8 text-amber-600" />
             </div>
-
             <div className="space-y-1">
               <h3 className="text-xl font-bold text-amber-900">Upload Foto Emas</h3>
               <p className="text-sm text-gray-500">Ambil foto langsung atau upload dari galeri</p>
-              {/* <div className="pt-2 space-y-1 text-xs text-gray-400">
-                <p>📸 Tips untuk hasil terbaik:</p>
-                <ul className="list-disc list-inside pl-2 space-y-0.5">
-                  <li>Gunakan pencahayaan yang cukup</li>
-                  <li>Tampilkan seluruh perhiasan dalam frame</li>
-                  <li>Hindari bayangan berlebihan</li>
-                  <li>Foto dari sudut yang jelas (tidak miring)</li>
-                  <li>Gunakan background polos/kontras</li>
-                </ul>
-              </div> */}
             </div>
-
             <div className="flex flex-col sm:flex-row gap-3 w-full max-w-lg pt-2">
               <Button
                 onClick={() => document.getElementById('file-input')?.click()}
@@ -294,44 +223,26 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
                 Kamera
               </Button>
             </div>
-
             <p className="text-xs text-gray-400 mt-2">Format: JPG, PNG • Max: 10MB</p>
             <input id="file-input" type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
           </CardContent>
         </Card>
       )}
 
-      {/* 2. MODAL KAMERA (OVERLAY FIXED) */}
       {isCameraOpen && (
         <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4">
           <div className="bg-black rounded-2xl overflow-hidden max-w-md w-full relative shadow-2xl border border-gray-800 flex flex-col max-h-[90vh]">
-
             <div className="p-4 z-10 flex justify-between items-center bg-black/40 backdrop-blur-md absolute top-0 left-0 right-0">
               <span className="text-white font-medium">Ambil Foto</span>
               <button onClick={stopCamera} className="bg-white/10 p-2 rounded-full text-white hover:bg-white/20 transition-colors">
                 <X className="w-6 h-6" />
               </button>
             </div>
-
             <div className="relative flex-1 bg-gray-900 flex items-center justify-center overflow-hidden">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 pointer-events-none opacity-30">
-                <div className="w-full h-full border border-white/20 grid grid-cols-3 grid-rows-3">
-                  {[...Array(9)].map((_, i) => <div key={i} className="border border-white/10"></div>)}
-                </div>
-              </div>
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
             </div>
-
             <div className="p-6 bg-black flex justify-center items-center pb-8">
-              <button
-                onClick={captureImage}
-                className="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center hover:scale-95 transition-transform"
-              >
+              <button onClick={captureImage} className="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center hover:scale-95 transition-transform">
                 <div className="w-16 h-16 rounded-full bg-amber-500"></div>
               </button>
             </div>
@@ -339,10 +250,8 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
         </div>
       )}
 
-      {/* 3. STATE: PREVIEW & ANALISIS */}
       {selectedImage && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-
           <Card className="border-amber-200 overflow-hidden bg-white">
             <div className="relative h-64 bg-gray-100 flex items-center justify-center">
               <img src={selectedImage} alt="Preview" className="h-full w-full object-contain" />
@@ -357,7 +266,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
             {!analysisResult && !isAnalyzing && (
               <div className="p-6 flex justify-center bg-amber-50/50">
                 <Button
-                  onClick={analyzeWithGemini}
+                  onClick={simulateAnalysis}
                   size="lg"
                   className="w-full sm:w-auto px-10 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg text-lg h-12"
                 >
@@ -374,13 +283,13 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
                 <div className="flex justify-between items-end text-amber-900">
                   <span className="font-semibold text-lg flex items-center gap-2">
                     <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
-                    {analysisStatus || 'Menganalisis...'}
+                    Menganalisis...
                   </span>
                   <span className="font-bold text-2xl text-amber-600">{progress}%</span>
                 </div>
                 <Progress value={progress} className="h-4 bg-gray-100 rounded-full" />
                 <p className="text-center text-sm text-gray-500 animate-pulse">
-                  Gemini AI sedang mengidentifikasi karakteristik emas Anda...
+                  AI sedang mengidentifikasi karakteristik emas Anda...
                 </p>
               </CardContent>
             </Card>
@@ -391,17 +300,12 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
               <Alert className="bg-green-50 border-green-200 text-green-800 py-4">
                 <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
                 <AlertDescription className="font-medium text-base ml-2">
-                  Analisis AI selesai! Hasil estimasi telah tersedia.
+                  Analisis AI selesai! Hasil estimasi telah tersedia dan disimpan ke riwayat Anda.
                 </AlertDescription>
               </Alert>
 
               <div className="grid md:grid-cols-2 gap-6">
                 <Card className="border-amber-200 shadow-sm hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-2 border-b border-amber-50">
-                    <CardTitle className="text-sm uppercase tracking-wider text-amber-700 flex items-center gap-2 font-bold">
-                      <Eye className="w-4 h-4" /> Identifikasi Objek
-                    </CardTitle>
-                  </CardHeader>
                   <CardContent className="space-y-4 pt-4">
                     <div className="flex justify-between items-center pb-2 border-b border-dashed border-gray-100">
                       <span className="text-gray-600">Jenis Perhiasan</span>
@@ -431,9 +335,6 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
                 </Card>
 
                 <Card className="border-amber-200 shadow-sm hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-2 border-b border-amber-50">
-                    <CardTitle className="text-sm uppercase tracking-wider text-amber-700 font-bold">Confidence Score</CardTitle>
-                  </CardHeader>
                   <CardContent className="space-y-5 pt-4">
                     {[
                       { label: 'Deteksi Objek', val: analysisResult.confidence_scores.object_detection },
@@ -458,7 +359,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
                   className="flex-1 bg-amber-500 hover:bg-amber-600 text-white shadow-md h-12 text-lg"
                   onClick={() => setShowRAGValidation(true)}
                 >
-                  <Shield className="w-5 h-5 mr-2" /> Validasi dengan RAG
+                  Validasi dengan RAG
                 </Button>
                 <Button
                   variant="outline"
@@ -486,7 +387,6 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-
         </div>
       )}
     </div>
