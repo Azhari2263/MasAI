@@ -30,27 +30,36 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
+    const [isLoading, setIsLoading] = useState(true) // Start with true
+    const [mounted, setMounted] = useState(false)
 
-    // Check for existing session on mount
+    // Check for existing session ONLY ONCE on mount
     useEffect(() => {
-        const savedUser = localStorage.getItem('masai_user')
-        if (savedUser) {
+        setMounted(true)
+        
+        if (typeof window !== 'undefined') {
             try {
-                setUser(JSON.parse(savedUser))
+                const savedUser = localStorage.getItem('masai_user')
+                if (savedUser) {
+                    const parsedUser = JSON.parse(savedUser)
+                    setUser(parsedUser)
+                }
             } catch (error) {
+                console.error('Failed to load user:', error)
                 localStorage.removeItem('masai_user')
+            } finally {
+                setIsLoading(false)
             }
+        } else {
+            setIsLoading(false)
         }
-    }, [])
+    }, []) // Empty dependency array - run ONCE only
 
     const login = async (email: string, password: string): Promise<boolean> => {
         setIsLoading(true)
         try {
-            // Simulate API call - in production, this would call your auth API
             await new Promise(resolve => setTimeout(resolve, 1000))
 
-            // Mock authentication - check against seeded users
             if ((email === 'admin@masai.id' && password === 'admin123') ||
                 (email === 'user@masai.id' && password === 'user123')) {
 
@@ -79,10 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const register = async (userData: RegisterData): Promise<boolean> => {
         setIsLoading(true)
         try {
-            // Simulate API call
             await new Promise(resolve => setTimeout(resolve, 1000))
 
-            // Mock registration - in production, this would call your registration API
             const newUser: User = {
                 id: Date.now().toString(),
                 email: userData.email,
@@ -104,8 +111,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const logout = () => {
         setUser(null)
-        localStorage.removeItem("masai_user")
-        window.location.href = "/"   // ⬅️ Redirect ke halaman beranda
+        localStorage.removeItem('masai_user')
+        // Don't use window.location.href - use router instead
+        if (typeof window !== 'undefined') {
+            window.location.href = '/'
+        }
+    }
+
+    // Don't render children until mounted
+    if (!mounted) {
+        return null
     }
 
     return (
