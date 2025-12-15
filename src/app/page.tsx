@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import AuthModal from "@/components/AuthModal"
-import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   Sparkles,
   TrendingUp,
@@ -35,15 +36,45 @@ import {
 } from 'lucide-react'
 
 function LandingPage() {
-  const { user } = useAuth()
+  const { user, isInitialized, getRedirectPath } = useAuth()
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [authTab, setAuthTab] = useState<'login' | 'register'>('login')
+  const router = useRouter()
 
-  if (user) {
-    if (typeof window !== 'undefined') {
-      window.location.href = '/dashboard'
+  // Redirect jika user sudah login berdasarkan role
+  useEffect(() => {
+    if (isInitialized && user) {
+      const redirectPath = getRedirectPath()
+      router.push(redirectPath)
     }
-    return null
+  }, [user, isInitialized, router, getRedirectPath])
+
+  // Tampilkan loading selama initialisasi
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600"></div>
+          <p className="text-amber-700">Memuat aplikasi...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Jangan render landing page jika user sudah login
+  if (user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600"></div>
+          <p className="text-amber-700">
+            {user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' 
+              ? 'Mengalihkan ke admin panel...' 
+              : 'Mengalihkan ke dashboard...'}
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -438,10 +469,7 @@ function LandingPage() {
   )
 }
 
+// Hapus AuthProvider wrapper karena sudah ada di layout.tsx
 export default function Home() {
-  return (
-    <AuthProvider>
-      <LandingPage />
-    </AuthProvider>
-  )
+  return <LandingPage />
 }

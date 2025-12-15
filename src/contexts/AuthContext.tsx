@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface User {
     id: string
@@ -16,6 +17,8 @@ interface AuthContextType {
     register: (userData: RegisterData) => Promise<boolean>
     logout: () => void
     isLoading: boolean
+    isInitialized: boolean
+    getRedirectPath: () => string
 }
 
 interface RegisterData {
@@ -31,24 +34,64 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    const [isInitialized, setIsInitialized] = useState(false)
+    const router = useRouter()
+
+    // Fungsi untuk menyimpan cookie
+    const setCookie = (name: string, value: string, days: number = 7) => {
+        const expires = new Date(Date.now() + days * 864e5).toUTCString()
+        document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`
+    }
+
+    // Fungsi untuk menghapus cookie
+    const deleteCookie = (name: string) => {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
+    }
 
     // Check for existing session on mount
     useEffect(() => {
         const savedUser = localStorage.getItem('masai_user')
+        let parsedUser: User | null = null
+
         if (savedUser) {
             try {
-                setUser(JSON.parse(savedUser))
+                parsedUser = JSON.parse(savedUser)
+                setUser(parsedUser)
+                
+                // Sync ke cookie jika ada di localStorage tapi tidak di cookie
+                const cookies = document.cookie.split(';')
+                const hasCookie = cookies.some(cookie => 
+                    cookie.trim().startsWith('masai_user=')
+                )
+                
+                if (!hasCookie && parsedUser) {
+                    setCookie('masai_user', savedUser)
+                }
             } catch (error) {
+                console.error('Error parsing saved user:', error)
                 localStorage.removeItem('masai_user')
+                deleteCookie('masai_user')
             }
         }
+        setIsInitialized(true)
     }, [])
+
+    // Fungsi untuk mendapatkan redirect path berdasarkan role
+    const getRedirectPath = (): string => {
+        if (!user) return '/'
+        
+        if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
+            return '/admin'
+        }
+        
+        return '/dashboard'
+    }
 
     const login = async (email: string, password: string): Promise<boolean> => {
         setIsLoading(true)
         try {
-            // Simulate API call - in production, this would call your auth API
-            await new Promise(resolve => setTimeout(resolve, 1000))
+            // Simulate API call
+            await new Promise(resolve => setTimeout(resolve, 500))
 
             // Mock authentication - check against seeded users
             if ((email === 'admin@masai.id' && password === 'admin123') ||
@@ -63,7 +106,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }
 
                 setUser(userData)
+                
+                // Simpan ke localStorage
                 localStorage.setItem('masai_user', JSON.stringify(userData))
+                
+                // Simpan ke cookie untuk middleware
+                setCookie('masai_user', JSON.stringify(userData))
+                
                 return true
             }
 
@@ -80,9 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(true)
         try {
             // Simulate API call
-            await new Promise(resolve => setTimeout(resolve, 1000))
+            await new Promise(resolve => setTimeout(resolve, 500))
 
-            // Mock registration - in production, this would call your registration API
+            // Mock registration
             const newUser: User = {
                 id: Date.now().toString(),
                 email: userData.email,
@@ -92,7 +141,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             setUser(newUser)
+            
+            // Simpan ke localStorage
             localStorage.setItem('masai_user', JSON.stringify(newUser))
+            
+            // Simpan ke cookie untuk middleware
+            setCookie('masai_user', JSON.stringify(newUser))
+            
             return true
         } catch (error) {
             console.error('Registration error:', error)
@@ -104,8 +159,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const logout = () => {
         setUser(null)
+        
+        // Hapus dari localStorage
         localStorage.removeItem("masai_user")
-        window.location.href = "/"   // ⬅️ Redirect ke halaman beranda
+        
+        // Hapus cookie
+        deleteCookie('masai_user')
+        
+        router.push('/')
     }
 
     return (
@@ -114,7 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             login,
             register,
             logout,
-            isLoading
+            isLoading,
+            isInitialized,
+            getRedirectPath
         }}>
             {children}
         </AuthContext.Provider>
