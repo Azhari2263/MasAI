@@ -1,6 +1,4 @@
-// This is your Prisma schema file for MasAI - Sistem Penaksir Emas Cerdas
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
+// prisma/schema.prisma - UPDATED VERSION
 generator client {
   provider = "prisma-client-js"
 }
@@ -31,7 +29,6 @@ model User {
   @@map("users")
 }
 
-// User roles for RBAC
 enum UserRole {
   USER
   ADMIN
@@ -47,7 +44,6 @@ model UserSession {
   created_at   DateTime @default(now())
   is_active    Boolean  @default(true)
 
-  // Relations
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("user_sessions")
@@ -56,15 +52,14 @@ model UserSession {
 // Gold price tracking
 model GoldPrice {
   id           String   @id @default(cuid())
-  buy_price    Int      // in IDR
-  sell_price   Int      // in IDR
+  buy_price    Int
+  sell_price   Int
   effective_date DateTime @unique
   source       String   @default("Pegadaian")
   is_active    Boolean  @default(true)
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 
-  // Relations
   estimations Estimation[]
 
   @@map("gold_prices")
@@ -76,13 +71,13 @@ model Estimation {
   user_id          String?
   estimation_id    String   @unique
   image_url        String?
-  image_base64     String?  // For temporary storage
+  image_base64     String?
   
   // AI Analysis Results
-  object_type      String   // e.g., "Kalung", "Cincin", "Gelang"
-  estimated_weight Float    // in grams
-  karat            Int      // e.g., 18, 22, 24
-  condition        String   // "Baik", "Sangat Baik", "Cukup"
+  object_type      String
+  estimated_weight Float
+  karat            Int
+  condition        String
   
   // Confidence scores
   confidence_object_detection    Float
@@ -102,8 +97,8 @@ model Estimation {
   rag_validation_id    String?
   rag_is_valid         Boolean?
   rag_confidence_score Float?
-  rag_validation_steps String? // JSON string
-  rag_recommendations  String? // JSON array string
+  rag_validation_steps String?
+  rag_recommendations  String?
   
   // Status and timestamps
   status           EstimationStatus @default(DRAFT)
@@ -121,7 +116,6 @@ model Estimation {
   @@map("estimations")
 }
 
-// Estimation status
 enum EstimationStatus {
   DRAFT
   PENDING
@@ -131,7 +125,7 @@ enum EstimationStatus {
   EXPIRED
 }
 
-// Loan applications
+// Loan applications - UPDATED with new fields
 model Application {
   id             String            @id @default(cuid())
   estimation_id  String            @unique
@@ -149,17 +143,18 @@ model Application {
   requested_amount    Int
   approved_amount     Int?
   interest_rate       Float?
-  loan_duration       Int? // in months
+  loan_duration       Int?
   
   // Status tracking
   status              ApplicationStatus @default(DRAFT)
   current_step        String
   progress_percentage Int @default(0)
   
-  // Approval details
+  // NEW: Approval/Rejection fields
   approved_by         String?
   approved_at         DateTime?
-  rejection_reason    String?
+  rejection_reason    String?       // Store reason for rejection
+  rejected_at         DateTime?     // Track when rejected
   
   // Branch information
   branch_id           String?
@@ -179,7 +174,6 @@ model Application {
   @@map("applications")
 }
 
-// Application status
 enum ApplicationStatus {
   DRAFT
   PENDING
@@ -197,12 +191,11 @@ model ApplicationStatusLog {
   id            String   @id @default(cuid())
   application_id String
   step          String
-  status        String   // "completed", "in_progress", "pending"
+  status        String
   description   String
   timestamp     DateTime @default(now())
-  created_by    String?  // User or system that created this log
+  created_by    String?
 
-  // Relations
   application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
 
   @@map("application_status_logs")
@@ -212,17 +205,16 @@ model ApplicationStatusLog {
 model ValidationLog {
   id             String   @id @default(cuid())
   estimation_id  String
-  validation_type String  // "retrieval", "generation", "reflection", "validation"
+  validation_type String
   step_name      String
   success        Boolean
   confidence_score Float
-  input_data     String?  // JSON string
-  output_data    String?  // JSON string
+  input_data     String?
+  output_data    String?
   error_message  String?
   processing_time_ms Int?
   created_at     DateTime @default(now())
 
-  // Relations
   estimation Estimation @relation(fields: [estimation_id], references: [id], onDelete: Cascade)
 
   @@map("validation_logs")
@@ -231,11 +223,11 @@ model ValidationLog {
 // Knowledge base for RAG
 model KnowledgeBase {
   id           String   @id @default(cuid())
-  category     String   // "regulation", "policy", "procedure", "faq"
+  category     String
   title        String
-  content      String   // Markdown or plain text
-  keywords     String?  // Comma-separated keywords for search
-  priority     Int      @default(0) // Higher number = higher priority
+  content      String
+  keywords     String?
+  priority     Int      @default(0)
   is_active    Boolean  @default(true)
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
@@ -248,7 +240,7 @@ model KnowledgeBase {
 model SystemConfig {
   id           String   @id @default(cuid())
   key          String   @unique
-  value        String   // JSON string for complex values
+  value        String
   description  String?
   is_active    Boolean  @default(true)
   created_at   DateTime @default(now())
@@ -257,11 +249,11 @@ model SystemConfig {
   @@map("system_config")
 }
 
-// Audit logs
+// Audit logs - UPDATED with more details
 model AuditLog {
   id           String   @id @default(cuid())
   user_id      String?
-  action       String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT"
+  action       String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "APPROVE", "REJECT"
   resource     String   // "estimation", "application", "user", "gold_price"
   resource_id  String?
   old_values   String?  // JSON string
@@ -270,5 +262,40 @@ model AuditLog {
   user_agent   String?
   created_at   DateTime @default(now())
 
+  @@index([user_id])
+  @@index([resource])
+  @@index([created_at])
   @@map("audit_logs")
+}
+
+// NEW: Email notifications log
+model EmailLog {
+  id              String   @id @default(cuid())
+  recipient_email String
+  subject         String
+  template_type   String   // "APPROVAL", "REJECTION", "STATUS_UPDATE"
+  status          String   // "SENT", "FAILED", "PENDING"
+  error_message   String?
+  sent_at         DateTime?
+  created_at      DateTime @default(now())
+
+  @@index([recipient_email])
+  @@index([created_at])
+  @@map("email_logs")
+}
+
+// NEW: Admin activity tracking
+model AdminActivity {
+  id              String   @id @default(cuid())
+  admin_id        String
+  activity_type   String   // "LOGIN", "LOGOUT", "APPROVE", "REJECT", "DELETE", etc.
+  target_type     String?  // "application", "user", etc.
+  target_id       String?
+  description     String?
+  ip_address      String?
+  created_at      DateTime @default(now())
+
+  @@index([admin_id])
+  @@index([created_at])
+  @@map("admin_activities")
 }
