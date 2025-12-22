@@ -1,4 +1,6 @@
-// prisma/schema.prisma - UPDATED VERSION
+// Prisma Schema untuk MasAI - Gold Estimation System
+// Database: SQLite (Production bisa diganti PostgreSQL/MySQL)
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,14 +10,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User management with roles
 model User {
-  id            String   @id @default(cuid())
+  id            String   @id @default(uuid())
   email         String   @unique
-  name          String?
+  name          String
   phone         String?
-  password_hash String?
-  role          UserRole @default(USER)
+  password_hash String
+  role          String   @default("USER") // USER, ADMIN, SUPER_ADMIN
   is_active     Boolean  @default(true)
   last_login    DateTime?
   created_at    DateTime @default(now())
@@ -24,278 +25,105 @@ model User {
   // Relations
   estimations   Estimation[]
   applications  Application[]
-  sessions      UserSession[]
+  audit_logs    AuditLog[]
 
   @@map("users")
 }
 
-enum UserRole {
-  USER
-  ADMIN
-  SUPER_ADMIN
-}
-
-// User sessions for authentication
-model UserSession {
-  id           String   @id @default(cuid())
-  user_id      String
-  session_token String  @unique
-  expires_at   DateTime
-  created_at   DateTime @default(now())
-  is_active    Boolean  @default(true)
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@map("user_sessions")
-}
-
-// Gold price tracking
-model GoldPrice {
-  id           String   @id @default(cuid())
-  buy_price    Int
-  sell_price   Int
-  effective_date DateTime @unique
-  source       String   @default("Pegadaian")
-  is_active    Boolean  @default(true)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-
-  estimations Estimation[]
-
-  @@map("gold_prices")
-}
-
-// AI Analysis results
 model Estimation {
-  id               String   @id @default(cuid())
-  user_id          String?
-  estimation_id    String   @unique
-  image_url        String?
-  image_base64     String?
-  
-  // AI Analysis Results
-  object_type      String
-  estimated_weight Float
-  karat            Int
-  condition        String
-  
-  // Confidence scores
-  confidence_object_detection    Float
-  confidence_weight_estimation   Float
-  confidence_karat_analysis      Float
-  confidence_condition_analysis  Float
-  
-  // Price calculation
-  gold_price_per_gram   Int
-  estimated_gold_value  Int
-  max_ltv_percentage    Int
-  max_loan_amount       Int
-  admin_fee             Int
-  net_loan_amount       Int
-  
-  // RAG Validation results
-  rag_validation_id    String?
-  rag_is_valid         Boolean?
-  rag_confidence_score Float?
-  rag_validation_steps String?
-  rag_recommendations  String?
-  
-  // Status and timestamps
-  status           EstimationStatus @default(DRAFT)
-  expires_at       DateTime
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  estimation_id         String   @unique
+  user_id               String
+  object_type           String
+  estimated_weight      Float
+  karat                 Int
+  condition             String
+  confidence_scores     String   // JSON string
+  gold_price_per_gram   Float
+  estimated_gold_value  Float
+  max_loan_amount       Float
+  admin_fee             Float    @default(0)
+  net_loan_amount       Float
+  status                String   @default("DRAFT") // DRAFT, PENDING, PROCESSING, APPROVED, REJECTED
+  image_url             String?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+  expires_at            DateTime
 
   // Relations
-  user                User?         @relation(fields: [user_id], references: [id])
-  gold_price_id       String?
-  gold_price          GoldPrice?    @relation(fields: [gold_price_id], references: [id])
-  application         Application?
-  validation_logs     ValidationLog[]
+  user         User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  applications Application[]
 
   @@map("estimations")
 }
 
-enum EstimationStatus {
-  DRAFT
-  PENDING
-  PROCESSING
-  APPROVED
-  REJECTED
-  EXPIRED
-}
-
-// Loan applications - UPDATED with new fields
 model Application {
-  id             String            @id @default(cuid())
-  estimation_id  String            @unique
-  user_id        String?
-  
-  // Application details
-  application_number String         @unique
-  full_name          String
-  email              String
-  phone              String
-  id_card_number     String?
-  id_card_image      String?
-  
-  // Loan details
-  requested_amount    Int
-  approved_amount     Int?
-  interest_rate       Float?
-  loan_duration       Int?
-  
-  // Status tracking
-  status              ApplicationStatus @default(DRAFT)
-  current_step        String
-  progress_percentage Int @default(0)
-  
-  // NEW: Approval/Rejection fields
+  id                  String   @id @default(uuid())
+  application_number  String   @unique
+  estimation_id       String
+  user_id             String
+  full_name           String
+  email               String
+  phone               String
+  branch_name         String?
+  status              String   @default("PENDING") // PENDING, PROCESSING, APPROVED, REJECTED, COMPLETED
+  current_step        String   @default("pengajuan_dibuat")
+  progress_percentage Int      @default(0)
   approved_by         String?
   approved_at         DateTime?
-  rejection_reason    String?       // Store reason for rejection
-  rejected_at         DateTime?     // Track when rejected
-  
-  // Branch information
-  branch_id           String?
-  branch_name         String?
-  branch_address      String?
-  
-  // Timestamps
+  approved_amount     Float?
+  rejection_reason    String?
+  notes               String?
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
-  expires_at          DateTime?
 
   // Relations
-  user         User?       @relation(fields: [user_id], references: [id])
-  estimation   Estimation  @relation(fields: [estimation_id], references: [id], onDelete: Cascade)
-  status_logs  ApplicationStatusLog[]
+  user          User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  estimation    Estimation              @relation(fields: [estimation_id], references: [id], onDelete: Cascade)
+  status_logs   ApplicationStatusLog[]
 
   @@map("applications")
 }
 
-enum ApplicationStatus {
-  DRAFT
-  PENDING
-  PROCESSING
-  DOCUMENT_VERIFICATION
-  PHYSICAL_ASSESSMENT
-  APPROVED
-  REJECTED
-  COMPLETED
-  CANCELLED
-}
-
-// Application status timeline
 model ApplicationStatusLog {
-  id            String   @id @default(cuid())
-  application_id String
-  step          String
-  status        String
-  description   String
-  timestamp     DateTime @default(now())
-  created_by    String?
+  id              String   @id @default(uuid())
+  application_id  String
+  step            String
+  status          String   // completed, in_progress, pending, failed
+  description     String?
+  created_by      String?
+  created_at      DateTime @default(now())
 
+  // Relations
   application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
 
   @@map("application_status_logs")
 }
 
-// RAG Validation logs
-model ValidationLog {
-  id             String   @id @default(cuid())
-  estimation_id  String
-  validation_type String
-  step_name      String
-  success        Boolean
-  confidence_score Float
-  input_data     String?
-  output_data    String?
-  error_message  String?
-  processing_time_ms Int?
-  created_at     DateTime @default(now())
-
-  estimation Estimation @relation(fields: [estimation_id], references: [id], onDelete: Cascade)
-
-  @@map("validation_logs")
-}
-
-// Knowledge base for RAG
-model KnowledgeBase {
-  id           String   @id @default(cuid())
-  category     String
-  title        String
-  content      String
-  keywords     String?
-  priority     Int      @default(0)
-  is_active    Boolean  @default(true)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-
-  @@unique([category, title])
-  @@map("knowledge_base")
-}
-
-// System configuration
-model SystemConfig {
-  id           String   @id @default(cuid())
-  key          String   @unique
-  value        String
-  description  String?
-  is_active    Boolean  @default(true)
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-
-  @@map("system_config")
-}
-
-// Audit logs - UPDATED with more details
 model AuditLog {
-  id           String   @id @default(cuid())
-  user_id      String?
-  action       String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "APPROVE", "REJECT"
-  resource     String   // "estimation", "application", "user", "gold_price"
-  resource_id  String?
-  old_values   String?  // JSON string
-  new_values   String?  // JSON string
-  ip_address   String?
-  user_agent   String?
-  created_at   DateTime @default(now())
+  id          String   @id @default(uuid())
+  user_id     String
+  action      String   // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, APPROVE, REJECT
+  resource    String   // user, estimation, application
+  resource_id String?
+  old_values  String?  // JSON string
+  new_values  String?  // JSON string
+  ip_address  String?
+  created_at  DateTime @default(now())
 
-  @@index([user_id])
-  @@index([resource])
-  @@index([created_at])
+  // Relations
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
   @@map("audit_logs")
 }
 
-// NEW: Email notifications log
-model EmailLog {
-  id              String   @id @default(cuid())
-  recipient_email String
-  subject         String
-  template_type   String   // "APPROVAL", "REJECTION", "STATUS_UPDATE"
-  status          String   // "SENT", "FAILED", "PENDING"
-  error_message   String?
-  sent_at         DateTime?
-  created_at      DateTime @default(now())
+model GoldPrice {
+  id          String   @id @default(uuid())
+  date        DateTime @default(now())
+  buy_price   Float
+  sell_price  Float
+  source      String   @default("Pegadaian")
+  created_at  DateTime @default(now())
 
-  @@index([recipient_email])
-  @@index([created_at])
-  @@map("email_logs")
-}
-
-// NEW: Admin activity tracking
-model AdminActivity {
-  id              String   @id @default(cuid())
-  admin_id        String
-  activity_type   String   // "LOGIN", "LOGOUT", "APPROVE", "REJECT", "DELETE", etc.
-  target_type     String?  // "application", "user", etc.
-  target_id       String?
-  description     String?
-  ip_address      String?
-  created_at      DateTime @default(now())
-
-  @@index([admin_id])
-  @@index([created_at])
-  @@map("admin_activities")
+  @@map("gold_prices")
 }
